@@ -187,6 +187,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
     <nav class="tabs" id="tabs" aria-label="الصفحات">
       <button type="button" data-mode="view" aria-pressed="true">العرض</button>
       <button type="button" data-mode="manage" aria-pressed="false" id="tabManage">الإدارة</button>
+      <button type="button" data-mode="requests" aria-pressed="false" id="tabRequests" hidden>الطلبات<span class="cnt" id="reqCount" hidden>0</span></button>
     </nav>
   </div>
 </header>
@@ -198,10 +199,11 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
     <button class="btn" type="button" id="addDoctorTop">إضافة طبيب</button>
   </section>
   <div class="dup" id="dup" hidden></div>
+  <section class="reqpanel" id="reqPanel" hidden aria-label="طلبات التسجيل"></section>
 
   <section class="cards" id="cards" aria-label="تصفية حسب الحالة"></section>
 
-  <section class="filters">
+  <section class="filters" id="filters">
     <select id="fDoctorSel" aria-label="الطبيب"></select>
     <select id="fPlaceSel" aria-label="المكان"></select>
     <div class="search"><input type="search" id="q" placeholder="بحث بالاسم أو التشخيص أو الشكوى" aria-label="بحث"></div>
@@ -211,7 +213,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   <section class="duties" id="duties" aria-label="حصر المرضى حسب duty"></section>
   <section id="dutyPage" class="duty-page" hidden></section>
 
-  <div class="tablebox">
+  <div class="tablebox" id="tablebox">
     <table id="tbl">
       <thead>
         <tr>
@@ -222,13 +224,12 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
     </table>
     <div class="state" id="state" hidden></div>
   </div>
-  <p class="note" id="storeNote"></p>
 </main>
 
 <dialog id="dlgDoctor">
   <form id="fDoctor" novalidate>
     <h2 id="dlgDoctorTitle">إضافة طبيب</h2>
-    <label class="field"><span>اسم الطبيب</span><input id="docName" required maxlength="80" autocomplete="off"></label>
+    <label class="field"><span>اسم الطبيب (الاسم الثلاثي)</span><input id="docName" required maxlength="80" autocomplete="off"></label>
     <p class="err" id="docErr" role="alert"></p>
     <div class="dlgact">
       <button class="btn primary" type="submit" id="docSave">حفظ الطبيب</button>
@@ -283,22 +284,59 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <style>
-#authGate{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
-#authCard{width:min(440px,100%);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:24px;box-shadow:0 15px 45px #0002}
-#authCard h2{margin:0 0 8px} #authCard p{line-height:1.8;color:var(--muted)}
-#authCard label{display:block;margin:12px 0 5px;font-weight:700} #authCard input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit;box-sizing:border-box}
-#authCard button{width:100%;margin-top:14px;padding:12px;border:0;border-radius:9px;background:var(--navy2);color:white;font:inherit;font-weight:800}
-#authError{color:var(--red)!important;white-space:pre-wrap} #signOutBtn{margin-inline-start:auto}
+[hidden]{display:none!important}
+#authGate{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
+#authCard{width:min(440px,100%);max-height:100%;overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:24px;box-shadow:0 15px 45px #0002}
+#authCard h2{margin:0 0 8px} #authCard p{line-height:1.8;color:var(--muted);margin:6px 0}
+#authCard label{display:block;margin:12px 0 5px;font-weight:700}
+#authCard input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit;box-sizing:border-box}
+#authCard .gbtn{display:block;width:100%;margin-top:12px;padding:12px;border:0;border-radius:9px;background:var(--navy2);color:#fff;font:inherit;font-weight:800;cursor:pointer}
+#authCard .gbtn.alt{background:transparent;color:var(--navy);border:1.5px solid var(--navy)}
+#authCard .gbtn[disabled]{opacity:.6;cursor:wait}
+.gtabs{display:flex;gap:6px;background:var(--bg);padding:4px;border-radius:10px;margin:10px 0 4px}
+.gtabs button{flex:1;font:inherit;font-weight:700;border:0;background:transparent;color:var(--muted);padding:9px;border-radius:8px;cursor:pointer}
+.gtabs button[aria-pressed="true"]{background:var(--surface);color:var(--navy);box-shadow:0 1px 4px #0002}
+.gerr{color:var(--red)!important;white-space:pre-wrap;min-height:1.2em;font-weight:700}
+#signOutBtn{margin-inline-start:auto}
+.reqpanel h2{margin:0 0 6px;color:var(--navy)} .reqpanel h3{margin:18px 0 8px;font-size:17px;color:var(--navy)}
+.reqcard{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-inline-start:5px solid var(--ref);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.reqcard.st-approved{border-inline-start-color:var(--dis)} .reqcard.st-rejected{border-inline-start-color:var(--pas)}
+.rname{font-weight:800;font-size:17px} .rmail{color:var(--muted);unicode-bidi:plaintext}
+.rmeta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;font-size:13px;color:var(--muted)}
+.pill{padding:2px 10px;border-radius:999px;font-weight:700;font-size:13px}
+.pill.ok{background:var(--dis-s);color:var(--dis)} .pill.warn{background:var(--ref-s);color:var(--ref)} .pill.bad{background:var(--pas-s);color:var(--pas)}
+.ract{display:flex;gap:8px;flex-wrap:wrap}
+.cnt{display:inline-block;background:#c1272d;color:#fff;border-radius:999px;min-width:20px;padding:0 6px;font-size:13px;margin-inline-start:6px;text-align:center}
 </style>
 <div id="authGate">
- <form id="authCard">
-  <h2>دفتر الحصر — تسجيل الدخول</h2>
-  <p>هذا السجل مخصص للمستخدمين المصرّح لهم. سجّل الدخول بالبريد الإلكتروني وكلمة المرور التي أُنشئت في Firebase. لا يوجد إنشاء حساب عام من هذه الصفحة.</p>
-  <label for="authEmail">البريد الإلكتروني</label><input id="authEmail" type="email" autocomplete="username" required>
-  <label for="authPassword">كلمة المرور</label><input id="authPassword" type="password" autocomplete="current-password" required>
-  <button id="authSubmit" type="submit">تسجيل الدخول</button>
-  <p id="authError" role="alert"></p>
- </form>
+ <div id="authCard">
+  <h2>دفتر الحصر</h2>
+  <div id="authForm">
+   <div class="gtabs" id="authTabs">
+    <button type="button" id="tabLogin" aria-pressed="true">تسجيل الدخول</button>
+    <button type="button" id="tabSignup" aria-pressed="false">إنشاء حساب</button>
+   </div>
+   <form id="authFormEl" novalidate>
+    <p id="authIntro">هذا السجل مخصص للأطباء المعتمدين.</p>
+    <div id="nameRow" hidden><label for="authName">الاسم الثلاثي</label><input id="authName" type="text" autocomplete="name" maxlength="120"></div>
+    <label for="authEmail">البريد الإلكتروني</label><input id="authEmail" type="email" autocomplete="username" required>
+    <label for="authPassword">كلمة المرور</label><input id="authPassword" type="password" autocomplete="current-password" required>
+    <div id="pass2Row" hidden><label for="authPassword2">تأكيد كلمة المرور</label><input id="authPassword2" type="password" autocomplete="new-password"></div>
+    <button class="gbtn" id="authSubmit" type="submit">تسجيل الدخول</button>
+    <p id="authError" class="gerr" role="alert"></p>
+   </form>
+  </div>
+  <div id="authStatus" hidden>
+   <h2 id="stTitle"></h2>
+   <p id="stMsg"></p>
+   <div id="stNameRow" hidden><label for="stName">الاسم الثلاثي</label><input id="stName" type="text" autocomplete="name" maxlength="120"></div>
+   <button class="gbtn" id="stSend" type="button" hidden>إرسال الطلب</button>
+   <button class="gbtn" id="stCheck" type="button" hidden>تحديث الحالة</button>
+   <button class="gbtn alt" id="stResend" type="button" hidden>إعادة إرسال رسالة التحقق</button>
+   <button class="gbtn alt" id="stOut" type="button">تسجيل الخروج</button>
+   <p id="stErr" class="gerr" role="alert"></p>
+  </div>
+ </div>
 </div>
 <script>
 (function(){
@@ -323,7 +361,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   };
   var FATE_KEYS = ["admitted","discharged","passed","referred"];
 
-  var state = { doctors:[], patients:[], places:DEFAULT_PLACES.slice(), mode:"view", filter:"all", doctorFilter:"", placeFilter:"", dutyFilter:"", q:"", ready:false, canManage:true, sig:{} };
+  var state = { doctors:[], patients:[], places:DEFAULT_PLACES.slice(), mode:"view", filter:"all", doctorFilter:"", placeFilter:"", dutyFilter:"", q:"", ready:false, canManage:true, requests:[], sig:{} };
   var backend = null;
   var busy = false;
   var $ = function(id){ return document.getElementById(id); };
@@ -377,8 +415,10 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       savePlaces:function(list){ state.places = list.slice(); persist(); render(); return Promise.resolve(); }
     };
   }
-  function dbBackend(db){
+  function dbBackend(db, isAdmin){
     var docs = db.collection("doctors"), pats = db.collection("patients"), placesDoc = db.doc("settings/places");
+    var reqs = db.collection("registrationRequests");
+    var unsubs = [], timer = null;
     function strip(o){ var c = {}; for (var k in o){ if (k!=="id") c[k]=o[k]; } return c; }
     function applyList(kind, s){
       try {
@@ -398,25 +438,46 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
         state.sig.places = sig; state.places = next; render();
       } catch(e){ console.error(e); }
     }
+    function applyRequests(s){
+      try {
+        state.requests = s.docs.map(function(d){ var v = Object.assign({}, d.data()||{}); v.id = d.id; return v; });
+        render();
+      } catch(e){ console.error(e); }
+    }
     function refresh(){
       return Promise.all([docs.get(), pats.get(), placesDoc.get()]).then(function(r){
         applyList("doctors", r[0]); applyList("patients", r[1]); applyPlaces(r[2]);
       }).catch(function(e){ console.error(e); });
     }
-    docs.onSnapshot(function(s){ applyList("doctors", s); }, function(e){ console.error(e); });
-    pats.onSnapshot(function(s){ applyList("patients", s); }, function(e){ console.error(e); });
-    placesDoc.onSnapshot(function(s){ applyPlaces(s); }, function(e){ console.error(e); });
+    unsubs.push(docs.onSnapshot(function(s){ applyList("doctors", s); }, function(e){ console.error(e); }));
+    unsubs.push(pats.onSnapshot(function(s){ applyList("patients", s); }, function(e){ console.error(e); }));
+    unsubs.push(placesDoc.onSnapshot(function(s){ applyPlaces(s); }, function(e){ console.error(e); }));
+    if (isAdmin) unsubs.push(reqs.onSnapshot(applyRequests, function(e){ console.error(e); }));
     refresh();
-    setInterval(function(){ if (!document.hidden) refresh(); }, 8000);
+    timer = setInterval(function(){ if (!document.hidden) refresh(); }, 8000);
     function guard(p){ return p.catch(function(e){
-      toast(e && e.code==="invalid_argument" ? "لا تملك صلاحية التعديل" : "تعذّر الحفظ، حاول مرة أخرى"); throw e; }); }
+      toast(e && (e.code==="permission-denied" || e.code==="invalid_argument") ? "لا تملك صلاحية التعديل" : "تعذّر الحفظ، حاول مرة أخرى"); throw e; }); }
+    function decide(r, action){
+      var ts = firebase.firestore.FieldValue.serverTimestamp();
+      var b = db.batch(), reqRef = reqs.doc(r.id), authRef = db.doc("authorizedDoctors/" + r.id);
+      if (action==="approve"){
+        b.set(authRef, {active:true, name:r.fullName, email:r.email, approvedAt:ts});
+        b.update(reqRef, {status:"approved", decidedAt:ts});
+      } else {
+        if (r.status==="approved") b.set(authRef, {active:false, revokedAt:ts}, {merge:true});
+        b.update(reqRef, {status:"rejected", decidedAt:ts});
+      }
+      return guard(b.commit());
+    }
     return {
       kind:"db",
       saveDoctor:function(doc){ return guard(docs.doc(doc.id).set(strip(doc))).then(refresh); },
       deleteDoctors:function(ids){ return guard(Promise.all(ids.map(function(id){ return docs.doc(id).delete(); }))).then(refresh); },
       savePatients:function(arr){ return guard(Promise.all(arr.map(function(p){ return pats.doc(p.id).set(strip(p)); }))).then(refresh); },
       deletePatients:function(ids){ return guard(Promise.all(ids.map(function(id){ return pats.doc(id).delete(); }))).then(refresh); },
-      savePlaces:function(list){ return guard(placesDoc.set({list:list.slice()})).then(refresh); }
+      savePlaces:function(list){ return guard(placesDoc.set({list:list.slice()})).then(refresh); },
+      decideRequest:decide,
+      teardown:function(){ unsubs.forEach(function(u){ try { u(); } catch(e){} }); unsubs = []; clearInterval(timer); }
     };
   }
 
@@ -455,8 +516,9 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   }
 
   function renderChrome(){
+    if (!state.canManage && state.mode!=="view") state.mode = "view";
     var manage = state.mode==="manage";
-    $("tabManage").hidden = !state.canManage;
+    $("tabManage").hidden = !state.canManage; $("tabRequests").hidden = !state.canManage;
     Array.prototype.forEach.call($("tabs").querySelectorAll("button"), function(b){ b.setAttribute("aria-pressed", String(b.getAttribute("data-mode")===state.mode)); });
     $("mbar").hidden = !manage;
     $("tbl").classList.toggle("manage", manage);
@@ -672,7 +734,74 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       st.hidden = false; st.textContent = "لا توجد نتائج مطابقة للتصفية الحالية.";
     } else { st.hidden = true; }
   }
-  function render(){ renderChrome(); renderDuties(); renderTable(); }
+  function render(){ renderChrome(); renderDuties(); renderTable(); renderRequests(); }
+
+  /* ---------------- registration requests (admin) ---------------- */
+  function isTriple(n){
+    var w = String(n||"").replace(/\s+/g," ").trim().split(" ");
+    return w.length>=3 && w.every(function(x){ return x.length>=2; });
+  }
+  function tsMs(t){ return t && t.toMillis ? t.toMillis() : (t||0); }
+  function fmtDate(t){
+    var ms = tsMs(t); if (!ms) return "";
+    try { return new Date(ms).toLocaleString("ar-u-nu-latn", {day:"numeric", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit"}); }
+    catch(e){ return ""; }
+  }
+  function reqCard(r){
+    var c = el("div", "reqcard st-"+r.status);
+    var info = el("div", "reqinfo");
+    info.appendChild(el("div", "rname", r.fullName || "—"));
+    info.appendChild(el("div", "rmail", r.email || ""));
+    var meta = el("div", "rmeta");
+    var known = state.doctors.some(function(d){ return nameKey(d.name)===nameKey(r.fullName); });
+    meta.appendChild(el("span", "pill " + (known ? "ok" : "warn"), known ? "الاسم موجود في قائمة الأطباء" : "الاسم غير موجود في قائمة الأطباء"));
+    if (r.status==="approved") meta.appendChild(el("span", "pill ok", "معتمد"));
+    if (r.status==="rejected") meta.appendChild(el("span", "pill bad", "مرفوض"));
+    var dt = fmtDate(r.createdAt); if (dt) meta.appendChild(el("span", null, dt));
+    info.appendChild(meta); c.appendChild(info);
+    var act = el("div", "ract");
+    function mk(label, cls, fn){ var b = el("button", "btn small "+cls, label); b.type = "button"; b.addEventListener("click", fn); act.appendChild(b); }
+    function approve(){ backend.decideRequest(r, "approve").then(function(){ toast("تم قبول الطلب"); }).catch(function(){}); }
+    if (r.status==="pending"){
+      mk("قبول", "primary", approve);
+      mk("رفض", "danger", function(){
+        confirmAction("رفض الطلب", "سيُرفض طلب «"+r.fullName+"» ولن يتمكن من عرض بيانات المرضى.", "رفض", function(){
+          return backend.decideRequest(r, "reject").then(function(){ toast("تم رفض الطلب"); });
+        }, true);
+      });
+    } else if (r.status==="approved"){
+      mk("إلغاء الاعتماد", "danger", function(){
+        confirmAction("إلغاء الاعتماد", "سيفقد «"+r.fullName+"» القدرة على عرض بيانات المرضى فورًا.", "إلغاء الاعتماد", function(){
+          return backend.decideRequest(r, "reject").then(function(){ toast("تم إلغاء الاعتماد"); });
+        }, true);
+      });
+    } else {
+      mk("قبول", "primary", approve);
+    }
+    c.appendChild(act);
+    return c;
+  }
+  function renderRequests(){
+    var on = state.mode==="requests" && state.canManage;
+    ["cards","filters","census","duties","tablebox"].forEach(function(id){ $(id).hidden = on; });
+    if (on) $("dutyPage").hidden = true;
+    var panel = $("reqPanel"); panel.hidden = !on;
+    var list = state.requests.slice().sort(function(a,b){ return tsMs(b.createdAt)-tsMs(a.createdAt); });
+    var pending = list.filter(function(r){ return r.status==="pending"; });
+    var done = list.filter(function(r){ return r.status!=="pending"; });
+    var rc = $("reqCount"); rc.textContent = String(pending.length); rc.hidden = !pending.length;
+    if (!on) return;
+    panel.textContent = "";
+    panel.appendChild(el("h2", null, "طلبات التسجيل"));
+    panel.appendChild(el("p", "hint", "يصل الطلب إلى هنا بعد أن يؤكّد الطبيب بريده الإلكتروني. الطبيب المعتمد يعرض بيانات المرضى فقط ولا يعدّل ولا يحذف."));
+    panel.appendChild(el("h3", null, "بانتظار القرار ("+pending.length+")"));
+    if (!pending.length) panel.appendChild(el("div", "state", "لا توجد طلبات جديدة."));
+    pending.forEach(function(r){ panel.appendChild(reqCard(r)); });
+    if (done.length){
+      panel.appendChild(el("h3", null, "الطلبات المعالجة ("+done.length+")"));
+      done.forEach(function(r){ panel.appendChild(reqCard(r)); });
+    }
+  }
 
   /* ---------------- dialogs ---------------- */
   function setBusy(btn, on){ busy = on; if (btn) btn.disabled = on; }
@@ -693,6 +822,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
     if (busy) return;
     var name = $("docName").value.replace(/\s+/g," ").trim();
     if (!name){ $("docErr").textContent = "اكتب اسم الطبيب."; return; }
+    if (!isTriple(name)){ $("docErr").textContent = "اكتب الاسم الثلاثي (ثلاث كلمات على الأقل)."; return; }
     var key = nameKey(name);
     var dup = state.doctors.some(function(d){ return nameKey(d.name)===key && (!editingDoc || d.id!==editingDoc.id); });
     if (dup){ $("docErr").textContent = "هذا الطبيب مسجَّل مسبقًا ولا يمكن تكراره."; return; }
@@ -799,53 +929,192 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   $("logoIc").innerHTML = ICON.pulse;
   try { $("today").textContent = new Date().toLocaleDateString("ar-u-nu-latn", {weekday:"long", day:"numeric", month:"long", year:"numeric"}); } catch(e){}
   state.canManage = false;
-  $("storeNote").textContent = "يلزم تسجيل الدخول لعرض بيانات السجل.";
   render();
   try {
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
   } catch(initError) {
     $("authError").textContent = "تعذّر تهيئة Firebase. تحقق من اتصال الإنترنت وإعدادات المشروع.";
   }
-  var auth = firebase.auth();
-  var authBusy = false;
-  $("authCard").addEventListener("submit", function(ev){
+  var auth = firebase.auth(); auth.languageCode = "ar";
+  var fdb = firebase.firestore();
+  var authBusy = false, signupInFlight = false, evaluating = false, signupMode = false;
+  var pollTimer = null, cooldownTimer = null, currentKind = "";
+
+  function cleanName(n){ return String(n||"").replace(/\s+/g," ").trim(); }
+  function stopPoll(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
+  function startPoll(){
+    stopPoll();
+    pollTimer = setInterval(function(){ if (!document.hidden && auth.currentUser) evaluate(auth.currentUser, true); }, 6000);
+  }
+  function setSignupMode(on){
+    signupMode = on;
+    $("tabLogin").setAttribute("aria-pressed", String(!on)); $("tabSignup").setAttribute("aria-pressed", String(on));
+    $("nameRow").hidden = !on; $("pass2Row").hidden = !on;
+    $("authSubmit").textContent = on ? "إنشاء الحساب وإرسال رسالة التحقق" : "تسجيل الدخول";
+    $("authPassword").setAttribute("autocomplete", on ? "new-password" : "current-password");
+    $("authIntro").textContent = on
+      ? "اكتب اسمك الثلاثي وبريدك وكلمة مرور. سنرسل رسالة للتحقق من البريد، وبعدها يراجع المسؤول طلبك."
+      : "هذا السجل مخصص للأطباء المعتمدين.";
+    $("authError").textContent = "";
+  }
+  function showForm(){
+    stopPoll(); currentKind = "";
+    $("authStatus").hidden = true; $("authForm").hidden = false;
+    $("authGate").style.display = "flex";
+  }
+  var STATUS = {
+    verify:   {title:"فعّل بريدك الإلكتروني", msg:function(u){ return "أرسلنا رسالة تحقق إلى " + u.email + ". افتح الرابط الذي فيها (وتفقّد البريد غير المرغوب أيضًا) ثم ارجع إلى هنا."; }, check:"لقد فعّلت بريدي"},
+    name:     {title:"أكمل بيانات الطلب", msg:function(){ return "تم تأكيد بريدك. اكتب اسمك الثلاثي ليصل طلبك إلى المسؤول."; }},
+    pending:  {title:"طلبك قيد المراجعة", msg:function(){ return "وصل طلبك إلى المسؤول. سيُفتح لك عرض السجل بعد الموافقة، وتتحدّث هذه الصفحة تلقائيًا."; }, check:"تحديث الحالة"},
+    rejected: {title:"تم رفض الطلب", msg:function(){ return "لم تتم الموافقة على طلب التسجيل. تواصل مع المسؤول إن كان ذلك عن طريق الخطأ."; }},
+    error:    {title:"تعذّر التحقق من الحساب", msg:function(){ return "تحقق من اتصال الإنترنت ثم أعد المحاولة. إن استمرت المشكلة فراجع المسؤول."; }, check:"إعادة المحاولة"}
+  };
+  function present(kind, user, quiet){
+    if (quiet && currentKind===kind) return;
+    currentKind = kind;
+    var s = STATUS[kind];
+    $("authForm").hidden = true; $("authStatus").hidden = false; $("authGate").style.display = "flex";
+    $("stTitle").textContent = s.title; $("stMsg").textContent = s.msg(user);
+    $("stNameRow").hidden = kind!=="name"; $("stSend").hidden = kind!=="name";
+    $("stCheck").hidden = !s.check; if (s.check) $("stCheck").textContent = s.check;
+    $("stResend").hidden = kind!=="verify";
+    $("stErr").textContent = "";
+    if (kind==="name") $("stName").value = (user && user.displayName) || "";
+    if (kind==="verify" || kind==="pending") startPoll(); else stopPoll();
+  }
+  function authMsg(err){
+    var c = err && err.code;
+    if (c==="auth/invalid-email") return "صيغة البريد الإلكتروني غير صحيحة.";
+    if (c==="auth/email-already-in-use") return "هذا البريد مسجَّل مسبقًا. سجّل الدخول بدلًا من إنشاء حساب.";
+    if (c==="auth/weak-password") return "كلمة المرور ضعيفة. استخدم 8 أحرف على الأقل.";
+    if (c==="auth/too-many-requests") return "محاولات كثيرة؛ انتظر قليلًا ثم حاول مرة أخرى.";
+    if (c==="auth/network-request-failed") return "تعذّر الاتصال بالإنترنت.";
+    if (c==="auth/operation-not-allowed") return "تسجيل الدخول بالبريد وكلمة المرور غير مفعّل في Firebase Authentication.";
+    return "تعذّر تسجيل الدخول. تأكد من البريد وكلمة المرور.";
+  }
+
+  function enter(user, isAdmin){
+    stopPoll(); currentKind = "";
+    $("authGate").style.display = "none";
+    if (backend && backend.teardown) backend.teardown();
+    state.canManage = isAdmin; state.mode = "view"; state.ready = false; state.sig = {}; state.requests = [];
+    backend = dbBackend(fdb, isAdmin);
+    render();
+    var banner = document.querySelector(".banner-in");
+    var signOut = document.getElementById("signOutBtn");
+    if (!signOut) { signOut = document.createElement("button"); signOut.id = "signOutBtn"; signOut.type = "button"; signOut.className = "btn"; signOut.textContent = "تسجيل الخروج"; banner.appendChild(signOut); signOut.addEventListener("click", function(){ auth.signOut(); }); }
+  }
+  function submitRequest(user, name){
+    return fdb.doc("registrationRequests/" + user.uid).set({
+      uid: user.uid, email: user.email, fullName: name, status: "pending",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    }).then(function(){ present("pending", user, false); });
+  }
+  function evaluate(user, quiet){
+    if (evaluating) return Promise.resolve();
+    evaluating = true;
+    var p;
+    if (user.uid===ADMIN_UID) p = Promise.resolve(enter(user, true));
+    else p = user.reload().then(function(){
+      user = auth.currentUser; if (!user) return;
+      if (!user.emailVerified) return present("verify", user, quiet);
+      return user.getIdToken(true).then(function(){
+        return fdb.doc("authorizedDoctors/" + user.uid).get();
+      }).then(function(snap){
+        if (snap.exists && snap.data().active===true) return enter(user, false);
+        return fdb.doc("registrationRequests/" + user.uid).get().then(function(rs){
+          if (!rs.exists){
+            var nm = cleanName(user.displayName);
+            if (!isTriple(nm)) return present("name", user, quiet);
+            return submitRequest(user, nm);
+          }
+          return present(rs.data().status==="rejected" ? "rejected" : "pending", user, quiet);
+        });
+      });
+    });
+    return p.catch(function(err){
+      console.error(err);
+      if (!quiet) present("error", user, false);
+    }).then(function(){ evaluating = false; });
+  }
+
+  $("tabLogin").addEventListener("click", function(){ setSignupMode(false); });
+  $("tabSignup").addEventListener("click", function(){ setSignupMode(true); });
+  $("authFormEl").addEventListener("submit", function(ev){
     ev.preventDefault(); if (authBusy) return;
-    authBusy = true; $("authSubmit").disabled = true; $("authError").textContent = "جارٍ تسجيل الدخول…";
-    auth.signInWithEmailAndPassword($("authEmail").value.trim(), $("authPassword").value)
-      .then(function(){ $("authError").textContent = ""; })
-      .catch(function(err){
-        console.error(err);
-        var msg = "تعذّر تسجيل الدخول. تأكد من البريد وكلمة المرور وأن Email/Password مفعّل في Firebase Authentication.";
-        if (err && (err.code === "auth/invalid-email")) msg = "صيغة البريد الإلكتروني غير صحيحة.";
-        if (err && (err.code === "auth/too-many-requests")) msg = "محاولات كثيرة؛ انتظر قليلًا ثم حاول مرة أخرى.";
-        $("authError").textContent = msg;
-      }).finally(function(){ authBusy = false; $("authSubmit").disabled = false; });
+    var email = $("authEmail").value.trim(), pw = $("authPassword").value, nm = cleanName($("authName").value);
+    if (signupMode){
+      if (!isTriple(nm)){ $("authError").textContent = "اكتب اسمك الثلاثي (ثلاث كلمات على الأقل)."; return; }
+      if (pw.length<8){ $("authError").textContent = "كلمة المرور يجب ألا تقل عن 8 أحرف."; return; }
+      if (pw!==$("authPassword2").value){ $("authError").textContent = "كلمتا المرور غير متطابقتين."; return; }
+    }
+    authBusy = true; $("authSubmit").disabled = true;
+    $("authError").textContent = signupMode ? "جارٍ إنشاء الحساب…" : "جارٍ تسجيل الدخول…";
+    var job;
+    if (signupMode){
+      signupInFlight = true;
+      job = auth.createUserWithEmailAndPassword(email, pw).then(function(cred){
+        return cred.user.updateProfile({displayName: nm})
+          .then(function(){ return cred.user.sendEmailVerification(); })
+          .catch(function(e){ console.error(e); });
+      }).then(function(){ signupInFlight = false; if (auth.currentUser) return evaluate(auth.currentUser); });
+    } else {
+      job = auth.signInWithEmailAndPassword(email, pw);
+    }
+    job.then(function(){ $("authError").textContent = ""; })
+      .catch(function(err){ signupInFlight = false; console.error(err); $("authError").textContent = authMsg(err); })
+      .then(function(){ authBusy = false; $("authSubmit").disabled = false; });
   });
+
+  $("stCheck").addEventListener("click", function(){
+    var u = auth.currentUser; if (!u) return;
+    $("stCheck").disabled = true;
+    evaluate(u, false).then(function(){
+      $("stCheck").disabled = false;
+      if (currentKind==="verify") $("stErr").textContent = "لم يتم التحقق من البريد بعد.";
+      if (currentKind==="pending") $("stErr").textContent = "ما زال الطلب قيد المراجعة.";
+    });
+  });
+  $("stResend").addEventListener("click", function(){
+    var u = auth.currentUser; if (!u) return;
+    var btn = $("stResend"); btn.disabled = true;
+    u.sendEmailVerification().then(function(){
+      $("stErr").textContent = "تم إرسال رسالة التحقق.";
+      var left = 60; clearInterval(cooldownTimer);
+      btn.textContent = "إعادة الإرسال بعد " + left + " ث";
+      cooldownTimer = setInterval(function(){
+        left--; if (left<=0){ clearInterval(cooldownTimer); btn.disabled = false; btn.textContent = "إعادة إرسال رسالة التحقق"; }
+        else btn.textContent = "إعادة الإرسال بعد " + left + " ث";
+      }, 1000);
+    }).catch(function(e){
+      console.error(e); btn.disabled = false;
+      $("stErr").textContent = (e && e.code==="auth/too-many-requests") ? "محاولات كثيرة؛ انتظر قليلًا ثم أعد المحاولة." : "تعذّر إرسال الرسالة.";
+    });
+  });
+  $("stSend").addEventListener("click", function(){
+    var u = auth.currentUser; if (!u) return;
+    var nm = cleanName($("stName").value);
+    if (!isTriple(nm)){ $("stErr").textContent = "اكتب اسمك الثلاثي (ثلاث كلمات على الأقل)."; return; }
+    $("stSend").disabled = true;
+    u.updateProfile({displayName: nm}).then(function(){ return submitRequest(u, nm); })
+      .catch(function(e){ console.error(e); $("stErr").textContent = "تعذّر إرسال الطلب. حاول مرة أخرى."; })
+      .then(function(){ $("stSend").disabled = false; });
+  });
+  $("stOut").addEventListener("click", function(){ auth.signOut(); });
+
   auth.onAuthStateChanged(function(user){
     if (!user) {
-      $("authGate").style.display = "flex";
-      state.canManage = false; state.ready = false;
-      if (backend && backend.kind === "db") { state.doctors=[]; state.patients=[]; state.places=DEFAULT_PLACES.slice(); state.sig={}; }
-      $("storeNote").textContent = "يلزم تسجيل الدخول لعرض بيانات السجل.";
-      render();
+      stopPoll();
+      if (backend && backend.teardown) backend.teardown();
+      backend = null;
+      state.canManage = false; state.ready = false; state.mode = "view";
+      state.doctors = []; state.patients = []; state.places = DEFAULT_PLACES.slice(); state.sig = {}; state.requests = [];
+      showForm(); render();
       var old = document.getElementById("signOutBtn"); if (old) old.remove();
       return;
     }
-    var isAdmin = user.uid === ADMIN_UID;
-    var accessCheck = isAdmin ? Promise.resolve(true) : firebase.firestore().doc("authorizedDoctors/" + user.uid).get().then(function(snap){ return snap.exists && snap.data().active === true; });
-    accessCheck.then(function(allowed){
-      if (!allowed) return auth.signOut().then(function(){ $("authError").textContent = "هذا الحساب غير مصرّح له بعرض السجل. تواصل مع المسؤول."; });
-      $("authGate").style.display = "none";
-      state.canManage = isAdmin; state.mode = "view"; state.ready = false; state.sig = {};
-      backend = dbBackend(firebase.firestore());
-      $("storeNote").textContent = isAdmin ? "متصل بقاعدة Firebase — صلاحية المسؤول: عرض وإضافة وتعديل وحذف." : "متصل بقاعدة Firebase — صلاحية الطبيب: عرض فقط.";
-      render();
-      var banner = document.querySelector(".banner-in");
-      var signOut = document.getElementById("signOutBtn");
-      if (!signOut) { signOut = document.createElement("button"); signOut.id="signOutBtn"; signOut.type="button"; signOut.className="btn"; signOut.textContent="تسجيل الخروج"; banner.appendChild(signOut); signOut.addEventListener("click", function(){ auth.signOut(); }); }
-    }).catch(function(err){
-      console.error(err); auth.signOut(); $("authError").textContent = "تعذّر التحقق من صلاحية الحساب. راجع قواعد Firestore واتصال الإنترنت.";
-    });
+    if (signupInFlight) return;
+    evaluate(user, false);
   });
 })();
 </script>
