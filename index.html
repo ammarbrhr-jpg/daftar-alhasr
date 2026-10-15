@@ -200,6 +200,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   </section>
   <div class="dup" id="dup" hidden></div>
   <section class="reqpanel" id="reqPanel" hidden aria-label="طلبات التسجيل"></section>
+  <section class="attpanel" id="attPanel" hidden aria-label="حضور الأطباء"></section>
 
   <section class="cards" id="cards" aria-label="تصفية حسب الحالة"></section>
 
@@ -306,6 +307,17 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
 .pill{padding:2px 10px;border-radius:999px;font-weight:700;font-size:13px}
 .pill.ok{background:var(--dis-s);color:var(--dis)} .pill.warn{background:var(--ref-s);color:var(--ref)} .pill.bad{background:var(--pas-s);color:var(--pas)}
 .ract{display:flex;gap:8px;flex-wrap:wrap}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.btn.ok{background:var(--dis-s);color:var(--dis);border-color:var(--dis)}
+.attpanel{margin-bottom:14px} .attpanel h3{margin:0 0 6px;color:var(--navy);font-size:19px}
+.attadd{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface);border:1.5px dashed var(--navy);border-radius:10px;padding:10px 12px;margin:10px 0}
+.attadd .lbl{font-weight:800;color:var(--navy)}
+.attwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.atttbl{width:100%;border-collapse:collapse}
+.atttbl th,.atttbl td{padding:11px 14px;text-align:start;border-bottom:1px solid var(--line)}
+.atttbl th{background:var(--navy2);color:#fff}
+.atttbl tr:last-child td{border-bottom:0}
+.atttbl .tm{font-weight:800;font-variant-numeric:tabular-nums}
 .cnt{display:inline-block;background:#c1272d;color:#fff;border-radius:999px;min-width:20px;padding:0 6px;font-size:13px;margin-inline-start:6px;text-align:center}
 </style>
 <div id="authGate">
@@ -361,7 +373,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   };
   var FATE_KEYS = ["admitted","discharged","passed","referred"];
 
-  var state = { doctors:[], patients:[], places:DEFAULT_PLACES.slice(), mode:"view", filter:"all", doctorFilter:"", placeFilter:"", dutyFilter:"", q:"", ready:false, canManage:true, requests:[], sig:{} };
+  var state = { doctors:[], patients:[], places:DEFAULT_PLACES.slice(), mode:"view", filter:"all", doctorFilter:"", placeFilter:"", dutyFilter:"", q:"", ready:false, canManage:true, requests:[], attendance:[], dutyView:"patients", sig:{} };
   var backend = null;
   var busy = false;
   var $ = function(id){ return document.getElementById(id); };
@@ -417,7 +429,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   }
   function dbBackend(db, isAdmin){
     var docs = db.collection("doctors"), pats = db.collection("patients"), placesDoc = db.doc("settings/places");
-    var reqs = db.collection("registrationRequests");
+    var reqs = db.collection("registrationRequests"), attCol = db.collection("attendance");
     var unsubs = [], timer = null;
     function strip(o){ var c = {}; for (var k in o){ if (k!=="id") c[k]=o[k]; } return c; }
     function applyList(kind, s){
@@ -425,7 +437,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
         var arr = s.docs.map(function(d){ var v = Object.assign({}, d.data()||{}); v.id = d.id; return v; });
         var sig = JSON.stringify(arr);
         if (state.ready && state.sig[kind]===sig) return;
-        state.sig[kind] = sig; state[kind] = arr; state.ready = true; render();
+        state.sig[kind] = sig; state[kind] = arr; if (kind!=="attendance") state.ready = true; render();
       } catch(e){ console.error(e); toast("خطأ في عرض البيانات"); }
     }
     function applyPlaces(s){
@@ -445,13 +457,14 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       } catch(e){ console.error(e); }
     }
     function refresh(){
-      return Promise.all([docs.get(), pats.get(), placesDoc.get()]).then(function(r){
-        applyList("doctors", r[0]); applyList("patients", r[1]); applyPlaces(r[2]);
+      return Promise.all([docs.get(), pats.get(), placesDoc.get(), attCol.get().catch(function(){ return null; })]).then(function(r){
+        applyList("doctors", r[0]); applyList("patients", r[1]); applyPlaces(r[2]); if (r[3]) applyList("attendance", r[3]);
       }).catch(function(e){ console.error(e); });
     }
     unsubs.push(docs.onSnapshot(function(s){ applyList("doctors", s); }, function(e){ console.error(e); }));
     unsubs.push(pats.onSnapshot(function(s){ applyList("patients", s); }, function(e){ console.error(e); }));
     unsubs.push(placesDoc.onSnapshot(function(s){ applyPlaces(s); }, function(e){ console.error(e); }));
+    unsubs.push(attCol.onSnapshot(function(s){ applyList("attendance", s); }, function(e){ console.error(e); }));
     if (isAdmin) unsubs.push(reqs.onSnapshot(applyRequests, function(e){ console.error(e); }));
     refresh();
     timer = setInterval(function(){ if (!document.hidden) refresh(); }, 8000);
@@ -476,6 +489,8 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       savePatients:function(arr){ return guard(Promise.all(arr.map(function(p){ return pats.doc(p.id).set(strip(p)); }))).then(refresh); },
       deletePatients:function(ids){ return guard(Promise.all(ids.map(function(id){ return pats.doc(id).delete(); }))).then(refresh); },
       savePlaces:function(list){ return guard(placesDoc.set({list:list.slice()})).then(refresh); },
+      saveAttendance:function(rec){ return attCol.doc(rec.id).set(strip(rec)).then(refresh); },
+      deleteAttendance:function(id){ return guard(attCol.doc(id).delete()).then(refresh); },
       decideRequest:decide,
       teardown:function(){ unsubs.forEach(function(u){ try { u(); } catch(e){} }); unsubs = []; clearInterval(timer); }
     };
@@ -596,6 +611,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
     box.appendChild(el("span","title","حصر المرضى حسب duty:"));
     var base=basePatients(), counts={};
     base.forEach(function(p){ var k=p.dutyDate||"__none"; counts[k]=(counts[k]||0)+1; });
+    state.attendance.forEach(function(a){ if (a.dutyDate && !(a.dutyDate in counts)) counts[a.dutyDate]=0; });
     var dates=Object.keys(counts).filter(function(k){return k!=="__none";}).sort();
     if(counts.__none) dates.push("__none");
     if(!dates.length) box.appendChild(el("span","dash","لم تُسجّل مناوبات بعد."));
@@ -609,7 +625,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       c.appendChild(el("span",null,dutyLabel(date)));
       c.appendChild(el("b",null,String(counts[date])));
       c.addEventListener("click",function(){
-        state.dutyFilter=date;
+        state.dutyFilter=date; state.dutyView="patients";
         state.filter="all"; state.doctorFilter=""; state.placeFilter=""; state.q="";
         if ($("q")) $("q").value="";
         render(); window.scrollTo(0,0);
@@ -631,9 +647,17 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
     var info=el("div");
     info.appendChild(el("h2",null,"📅 صفحة المناوبة — "+dutyLabel(state.dutyFilter)));
     var count=state.patients.filter(function(p){return (p.dutyDate||"__none")===state.dutyFilter;}).length;
-    info.appendChild(el("div","sub","عدد المرضى في هذه المناوبة: "+count+" — قائمة الأطباء مشتركة وثابتة بين جميع المناوبات."));
+    info.appendChild(el("div","sub", state.dutyView==="attendance" ? "حضور الأطباء في هذه المناوبة بالوقت." : "عدد المرضى في هذه المناوبة: "+count+" — قائمة الأطباء مشتركة وثابتة بين جميع المناوبات."));
     box.appendChild(info);
-    if(state.canManage){
+    var seg=el("div","seg");
+    [["patients","👥 المرضى"],["attendance","🕒 الحضور"]].forEach(function(v){
+      var b=el("button","btn"+(state.dutyView===v[0]?" primary":""),v[1]); b.type="button";
+      b.setAttribute("aria-pressed",String(state.dutyView===v[0]));
+      b.addEventListener("click",function(){state.dutyView=v[0];render();});
+      seg.appendChild(b);
+    });
+    box.appendChild(seg);
+    if(state.canManage && state.dutyView!=="attendance"){
       var add=el("button","btn primary","+ إضافة مريض لهذه المناوبة"); add.type="button";
       add.addEventListener("click",function(){openPatient(null);}); box.appendChild(add);
     }
@@ -689,7 +713,10 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
                 return backend.deletePatients(list.map(function(p){ return p.id; })).then(function(){ return backend.deleteDoctors([doc.id]); }).then(function(){ toast("تم حذف الطبيب"); });
               }, true);
             }; }(d,mine));
-            act.appendChild(add); act.appendChild(ren); act.appendChild(del);
+            var ctxDuty = contextDuty(), got = attFor(ctxDuty, d.id);
+            var att = el("button", "btn small" + (got ? " ok" : " primary"), got ? "✓ حضر " + fmtTime(got.at) : "🕒 تسجيل حضور"); att.type = "button";
+            att.addEventListener("click", function(doc){ return function(){ markAttendance(doc); }; }(d));
+            act.appendChild(att); act.appendChild(add); act.appendChild(ren); act.appendChild(del);
             td.appendChild(act);
           }
           tr.appendChild(td);
@@ -734,7 +761,7 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       st.hidden = false; st.textContent = "لا توجد نتائج مطابقة للتصفية الحالية.";
     } else { st.hidden = true; }
   }
-  function render(){ renderChrome(); renderDuties(); renderTable(); renderRequests(); }
+  function render(){ renderChrome(); renderDuties(); renderTable(); renderRequests(); renderAttendance(); }
 
   /* ---------------- registration requests (admin) ---------------- */
   function isTriple(n){
@@ -783,8 +810,11 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
   }
   function renderRequests(){
     var on = state.mode==="requests" && state.canManage;
-    ["cards","filters","census","duties","tablebox"].forEach(function(id){ $(id).hidden = on; });
+    var attOn = !on && !!state.dutyFilter && state.dutyView==="attendance";
+    ["cards","filters","census","tablebox"].forEach(function(id){ $(id).hidden = on || attOn; });
+    $("duties").hidden = on;
     if (on) $("dutyPage").hidden = true;
+    if (attOn){ $("mbar").hidden = true; $("dup").hidden = true; }
     var panel = $("reqPanel"); panel.hidden = !on;
     var list = state.requests.slice().sort(function(a,b){ return tsMs(b.createdAt)-tsMs(a.createdAt); });
     var pending = list.filter(function(r){ return r.status==="pending"; });
@@ -801,6 +831,73 @@ dialog h2{margin:0 0 12px;font-size:20px;color:var(--navy)}
       panel.appendChild(el("h3", null, "الطلبات المعالجة ("+done.length+")"));
       done.forEach(function(r){ panel.appendChild(reqCard(r)); });
     }
+  }
+
+  /* ---------------- attendance ---------------- */
+  function p2(n){ return (n<10 ? "0" : "") + n; }
+  function dateKey(ms){ var d = new Date(ms); return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate()); }
+  function fmtTime(ms){
+    try { return new Date(ms).toLocaleTimeString("ar-u-nu-latn", {hour:"2-digit", minute:"2-digit"}); } catch(e){ return ""; }
+  }
+  function attId(duty, docId){ return duty + "_" + docId; }
+  function attFor(duty, docId){
+    var id = attId(duty, docId);
+    for (var i=0; i<state.attendance.length; i++){ if (state.attendance[i].id===id) return state.attendance[i]; }
+    return null;
+  }
+  function contextDuty(){ return (state.dutyFilter && state.dutyFilter!=="__none") ? state.dutyFilter : dateKey(Date.now()); }
+  function markAttendance(d){
+    var duty = contextDuty(), ex = attFor(duty, d.id);
+    if (ex){ toast("سبق تسجيل حضور «"+d.name+"» الساعة "+fmtTime(ex.at)); return; }
+    var now = Date.now();
+    backend.saveAttendance({id:attId(duty, d.id), doctorId:d.id, doctorName:d.name, dutyDate:duty, at:now})
+      .then(function(){ toast("تم تسجيل حضور «"+d.name+"» الساعة "+fmtTime(now)); })
+      .catch(function(e){ console.error(e); toast(e && e.code==="permission-denied" ? "لا تملك صلاحية تسجيل الحضور (أو سُجّل مسبقًا)" : "تعذّر تسجيل الحضور"); });
+  }
+  function renderAttendance(){
+    var panel = $("attPanel");
+    var on = !!state.dutyFilter && state.dutyView==="attendance" && state.mode!=="requests";
+    panel.hidden = !on; if (!on) return;
+    panel.textContent = "";
+    var duty = state.dutyFilter, manage = state.mode==="manage";
+    panel.appendChild(el("h3", null, "🕒 حضور الأطباء — " + dutyLabel(duty)));
+    if (duty==="__none"){ panel.appendChild(el("div", "state", "الحضور يُسجَّل لمناوبات محددة التاريخ فقط.")); return; }
+    var recs = state.attendance.filter(function(a){ return a.dutyDate===duty; }).sort(function(a,b){ return a.at-b.at; });
+    panel.appendChild(el("div", "hint", "عدد الحاضرين: " + recs.length));
+    if (manage){
+      var rest = sortedDoctors().filter(function(d){ return !attFor(duty, d.id); });
+      var box = el("div", "attadd"); box.appendChild(el("span", "lbl", "تسجيل حضور:"));
+      if (!rest.length) box.appendChild(el("span", "dash", state.doctors.length ? "تم تسجيل حضور جميع الأطباء." : "لا يوجد أطباء."));
+      rest.forEach(function(d){
+        var b = el("button", "btn small primary", "🕒 " + d.name); b.type = "button";
+        b.addEventListener("click", function(){ markAttendance(d); }); box.appendChild(b);
+      });
+      panel.appendChild(box);
+    }
+    if (!recs.length){ panel.appendChild(el("div", "state", "لم يُسجَّل حضور في هذه المناوبة بعد.")); return; }
+    var wrap = el("div", "attwrap"), tbl = el("table", "atttbl"), hr = el("tr");
+    ["#", "الطبيب", "وقت الحضور"].concat(manage ? [""] : []).forEach(function(t){ hr.appendChild(el("th", null, t)); });
+    var th = el("thead"); th.appendChild(hr); tbl.appendChild(th);
+    var tb = el("tbody");
+    recs.forEach(function(a, i){
+      var tr = el("tr");
+      var doc = state.doctors.filter(function(d){ return d.id===a.doctorId; })[0];
+      var name = doc ? doc.name : (a.doctorName || "—");
+      tr.appendChild(el("td", null, String(i+1)));
+      tr.appendChild(el("td", null, name));
+      tr.appendChild(el("td", "tm", fmtTime(a.at) + (dateKey(a.at)!==a.dutyDate ? " — " + dateKey(a.at) : "")));
+      if (manage){
+        var td = el("td"), del = el("button", "btn small danger", "حذف"); del.type = "button";
+        del.addEventListener("click", function(){
+          confirmAction("حذف تسجيل الحضور", "سيُحذف حضور «"+name+"» الساعة "+fmtTime(a.at)+".", "حذف", function(){
+            return backend.deleteAttendance(a.id).then(function(){ toast("تم حذف التسجيل"); });
+          }, true);
+        });
+        td.appendChild(del); tr.appendChild(td);
+      }
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); wrap.appendChild(tbl); panel.appendChild(wrap);
   }
 
   /* ---------------- dialogs ---------------- */
